@@ -57,6 +57,27 @@ in
                   or a fully specified GUID (see https://en.wikipedia.org/wiki/GUID_Partition_Table#Partition_type_GUIDs).
                 '';
               };
+              attributes = lib.mkOption {
+                type = lib.types.listOf lib.types.int;
+                default = [];
+                description = ''
+                  GPT partition entry attributes, according to UEFI specification 
+                  2.10 (see https://uefi.org/specs/UEFI/2.10_A/05_GUID_Partition_Table_Format.html#defined-gpt-partition-entry-attributes)
+                  and `sgdisk`s man page:
+
+                  - 0: Required Partition (`sgdisk`: system partition)
+                  - 1: No Block IO Protocol (`sgdisk`: hide from EFI)
+                  - 2: Legacy BIOS Bootable
+                  - 3-47: Undefined and must be zero, reserved for future use
+                  - 48-63: Reserved for GUID specific use. The use of these bits 
+                    will vary depending on the partition type
+
+                  `sgdisk` describes some of the GUID-specific bits this way:
+                  - 60: read only
+                  - 62: hidden
+                  - 63: do not automount
+                '';
+              };
               device = lib.mkOption {
                 type = lib.types.str;
                 default =
@@ -262,12 +283,18 @@ in
         ${lib.concatMapStrings (
           partition:
           let
+            attributes = lib.concatStringsSep " " ([
+                "--attributes=${toString partition._index}:=:0" # clear all bits
+              ] ++ map (bitNumber:
+                "--attributes=${toString partition._index}:set:${toString bitNumber}"
+              ) partition.attributes);
             args = ''
               --partition-guid="${toString partition._index}:${
                 if partition.uuid == null then "R" else partition.uuid
               }" \
               --change-name="${toString partition._index}:${partition.label}" \
               --typecode=${toString partition._index}:${partition.type} \
+              "${attributes}" \
               "${config.device}" \
             '';
             createArgs = ''
